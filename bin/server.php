@@ -216,14 +216,12 @@ class Server {
                 $server->send($fd, var_export($server->stats(), true) . $tab);
                 break;
             case 'log' :
-
                 if (is_file(static::LOG_PATH . 'server.log')) {
                     $log = Swoole\Coroutine\System::exec("tail -n 50 " . static::LOG_PATH . 'server.log');
                     $server->send($fd, var_export($log, true) . "\n");
                 } else {
                     $server->send($fd, "No Log\n");
                 }
-
                 break;
             case 'resetlog' :
                 Swoole\Process::kill($server->master_pid, SIGRTMIN);
@@ -249,7 +247,7 @@ class Server {
     public function log($data = '', $type = 'task') {
         $time = microtime(true);
         $date = date('Ydm');
-        $sfm = date('Y-m-d H:i:s' , (int) $time);
+        $sfm = date('Y-m-d H:i:s', (int)$time);
         $file = static::LOG_PATH . $date . "_{$type}.log";
         $text = <<<EOF
 [{$sfm}] {$data} Runtime:{$time}
