@@ -50,7 +50,7 @@ class Server {
             'task_enable_coroutine' => true,
             'task_ipc_mode' => 1,
             'dispatch_mode' => 2,
-            'daemonize' => 1,
+            'daemonize' => 0,
             'log_file' => static::LOG_PATH . 'server.log',
             'pid_file' => static::LOG_PATH . 'server.pid',
             'reload_async' => true,
@@ -145,14 +145,14 @@ class Server {
             $class = $msg['cmd'][0];
             $exc = $msg['cmd'][1];
             $obj = new $class;
+            $result = false;
             for ($i = -1; $i < $msg['again']; $i++) {
-                $result = true;
                 try {
                     $result = $obj->$exc();
                 } catch (Throwable $throwable) {
                     $this->log(var_export(['key' => $msg['key'], 'errormessage' => $throwable->getMessage(), 'line' => $throwable->getLine(), 'id' => $task->id], true), 'error');
                 }
-                if ($result !== false) {
+                if ($result === true) {
                     break;
                 }
             }
@@ -252,7 +252,13 @@ class Server {
         $text = <<<EOF
 [{$sfm}] {$data} Runtime:{$time}
 EOF;
-        file_put_contents($file, trim($text) . "\n", FILE_APPEND);
+        if ($type === 'task') {
+            file_put_contents($file, trim($text) . "\n", FILE_APPEND);
+        } else {
+            Swoole\Coroutine::create(function () use ($file, $text) {
+                file_put_contents($file, trim($text) . "\n", FILE_APPEND);
+            });
+        }
     }
 }
 
