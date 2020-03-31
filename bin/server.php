@@ -23,9 +23,9 @@ class Server {
 
     const PORT = 9501;
 
-    const LOG_PATH = __DIR__ . '/../runtime/log/';
+    const LOG_PATH = __DIR__ . '/../runtime/log';
 
-    const CONFIG_PATH = __DIR__ . '/../config/';
+    const CONFIG_PATH = __DIR__ . '/../config';
 
     /**
      * @var Swoole\Server
@@ -51,8 +51,8 @@ class Server {
             'task_ipc_mode' => 1,
             'dispatch_mode' => 2,
             'daemonize' => 1,
-            'log_file' => static::LOG_PATH . 'server.log',
-            'pid_file' => static::LOG_PATH . 'server.pid',
+            'log_file' => static::LOG_PATH . '/server.log',
+            'pid_file' => static::LOG_PATH . '/server.pid',
             'reload_async' => true,
             'max_wait_time' => 10,
             'max_coroutine' => 10000,
@@ -65,10 +65,10 @@ class Server {
 
     public function setServer() {
 
-        if (is_file(static::LOG_PATH . 'server.pid')) {
-            $pid = file_get_contents(static::LOG_PATH . 'server.pid');
+        if (is_file(static::LOG_PATH . '/server.pid')) {
+            $pid = file_get_contents(static::LOG_PATH . '/server.pid');
             if (Swoole\Process::kill((int)$pid, 0)) {
-                echo "\033[31mSwoole Server Running, pid : {$pid}\033[0m\n";
+                echo "\033[31mswoole server running, pid : {$pid} ,if you want to close server. kill -15 {$pid}\033[0m\n";
                 exit(0);
             }
         }
@@ -89,8 +89,8 @@ class Server {
             swoole_set_process_name(static::MANAGER_NAME);
         });
         $this->server->on('start', function ($server) {
-            echo "Swoole Server Master:{$server->master_pid}\n";
-            echo "Swoole Server Manager:{$server->manager_pid}\n";
+            $time = date('Y-m-d H:i:s');
+            echo "[{$time} #{$server->manager_pid}]  INFO    swoole server start. master : {$server->master_pid} , manager:{$server->manager_pid}" . PHP_EOL;
         });
         $this->server->on('workerstart', function ($server, $workerId) {
             if ($server->taskworker) {
@@ -171,7 +171,7 @@ class Server {
 
         });
         $this->server->on('workererror', function ($server, $worker_id, $worker_pid, $exit_code, $signal) {
-
+            $this->log(var_export(['worker_id' => $worker_id, 'worker_pid' => $worker_pid, 'exit_code' => $exit_code, 'signal' => $signal], true), 'error');
         });
         $this->server->on('workerexit', function ($server, $worker_id) {
             Swoole\Timer::clearAll();
@@ -192,63 +192,71 @@ class Server {
         /**
          * @var Swoole\Server $server
          */
-        switch ($cmd) {
-            case 'get' :
-                $text = '';
-                foreach ($this->table as $index => $item) {
-                    $text .= $index . ":" . $item['num'] . PHP_EOL;
-                }
-                $server->send($fd, $text . $tab);
-                break;
-            case 'reload' :
-                $server->reload();
-                $server->send($fd, "Swoole Server is reloading all workers now{$tab}");
-                break;
-            case 'reload-task' :
-                $server->reload(true);
-                $server->send($fd, "Swoole Server is reloading task workers now{$tab}");
-                break;
-            case 'shutdown' :
-                $server->send($fd, "Swoole Server shutdown{$tab}");
-                $server->shutdown();
-                break;
-            case 'stats' :
-                $server->send($fd, var_export($server->stats(), true) . $tab);
-                break;
-            case 'resetlog' :
-                Swoole\Process::kill($server->master_pid, SIGRTMIN);
-                $server->send($fd, 'Reset Log' . PHP_EOL);
-                break;
-            default:
-                $cmd = explode(" ", trim($cmd));
-                $cmd = array_values(array_filter($cmd));
-                if ($cmd) {
-                    switch ($cmd[0]) {
-                        case 'reset' :
-                            if (isset($cmd[1])) {
-                                $boole = $this->table->set((string)$cmd[1], ['num' => 0]);
-                                $boole ? $server->send($fd, 'reset success' . PHP_EOL) : $server->send($fd, 'reset fail' . PHP_EOL);
-                            }
-                            break;
+        $cmd = json_decode($cmd, true);
+        if (isset($cmd['type'])) {
+            switch ($cmd['type']) {
+                case 'get' :
+                    $text = '';
+                    foreach ($this->table as $index => $item) {
+                        $text .= $index . ":" . $item['num'] . PHP_EOL;
                     }
-                }
+                    $server->send($fd, $text . $tab);
+                    break;
+                case 'reload' :
+                    if (isset($cmd['ext']) && $cmd['ext'] == 'task') {
+                        $server->reload(true);
+                        $server->send($fd, "swoole server is reloading task workers now{$tab}");
+                    } else {
+                        $server->reload();
+                        $server->send($fd, "swoole server is reloading all workers now{$tab}");
+                    }
+                    break;
+                case 'shutdown' :
+                    $server->send($fd, "swoole server shutdown{$tab}");
+                    $server->shutdown();
+                    break;
+                case 'stats' :
+                    $server->send($fd, var_export($server->stats(), true) . $tab);
+                    break;
+                case 'log' :
+                    Swoole\Process::kill($server->master_pid, SIGRTMIN);
+                    $server->send($fd, 'reload log success' . PHP_EOL);
+                    break;
+                case 'reset' :
+                    if (isset($cmd['ext']) && $cmd['ext']) {
+                        $boole = false;
+                        if ($this->table->exist((string)$cmd['ext'])) {
+                            $boole = $this->table->set((string)$cmd['ext'], ['num' => 0]);
+                        }
+                        $boole ? $server->send($fd, "reset {$cmd['ext']} success" . PHP_EOL) : $server->send($fd, "reset {$cmd['ext']} fail" . PHP_EOL);
+                    }
+                    break;
+            }
         }
     }
 
 
-    public function log($data = '', $type = 'task') {
+    public function log($data = '', $type = 'task', $enable_coroutine = 0) {
         $time = microtime(true);
-        $date = date('Ymd');
+        $month = date('Ym', (int)$time);
+        $date = date('Ymd', (int)$time);
         $sfm = date('Y-m-d H:i:s', (int)$time);
-        $file = static::LOG_PATH . $date . "_{$type}.log";
+        $dir = static::LOG_PATH . DIRECTORY_SEPARATOR . $month;
+        $file = "{$date}_{$type}.log";
         $text = <<<EOF
 [{$sfm}] {$data} Runtime:{$time}
 EOF;
-        if ($type === 'task') {
-            file_put_contents($file, trim($text) . PHP_EOL, FILE_APPEND);
+        if ($enable_coroutine === 0) {
+            if (!is_dir($dir)) {
+                mkdir($dir, 0755);
+            }
+            file_put_contents($dir . DIRECTORY_SEPARATOR . $file, trim($text) . PHP_EOL, FILE_APPEND);
         } else {
-            Swoole\Coroutine::create(function () use ($file, $text) {
-                file_put_contents($file, trim($text) . PHP_EOL, FILE_APPEND);
+            Swoole\Coroutine::create(function () use ($dir, $file, $text) {
+                if (!is_dir($dir)) {
+                    mkdir($dir, 0755);
+                }
+                file_put_contents($dir . DIRECTORY_SEPARATOR . $file, trim($text) . PHP_EOL, FILE_APPEND);
             });
         }
     }
