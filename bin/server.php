@@ -50,7 +50,7 @@ class Server {
             'task_enable_coroutine' => true,
             'task_ipc_mode' => 1,
             'dispatch_mode' => 2,
-            'daemonize' => 0,
+            'daemonize' => 1,
             'log_file' => static::LOG_PATH . 'server.log',
             'pid_file' => static::LOG_PATH . 'server.pid',
             'reload_async' => true,
@@ -140,7 +140,7 @@ class Server {
                 return true;
             }
             if ($msg['log']) {
-                $this->log("任务id{$task->id} {$msg['name']} >>> 任务开始");
+                $this->log("任务id:{$task->id} {$msg['name']} >>> 任务开始");
             }
             $class = $msg['cmd'][0];
             $exc = $msg['cmd'][1];
@@ -157,7 +157,7 @@ class Server {
                 }
             }
             if ($msg['log']) {
-                $this->log("任务id{$task->id} {$msg['name']} >>> 任务结束");
+                $this->log("任务id:{$task->id} {$msg['name']} >>> 任务结束");
             }
             $this->table->decr($msg['key'], 'num');
         });
@@ -196,7 +196,7 @@ class Server {
             case 'get' :
                 $text = '';
                 foreach ($this->table as $index => $item) {
-                    $text .= $index . ":" . $item['num'] . "\n";
+                    $text .= $index . ":" . $item['num'] . PHP_EOL;
                 }
                 $server->send($fd, $text . $tab);
                 break;
@@ -215,17 +215,9 @@ class Server {
             case 'stats' :
                 $server->send($fd, var_export($server->stats(), true) . $tab);
                 break;
-            case 'log' :
-                if (is_file(static::LOG_PATH . 'server.log')) {
-                    $log = Swoole\Coroutine\System::exec("tail -n 50 " . static::LOG_PATH . 'server.log');
-                    $server->send($fd, var_export($log, true) . "\n");
-                } else {
-                    $server->send($fd, "No Log\n");
-                }
-                break;
             case 'resetlog' :
                 Swoole\Process::kill($server->master_pid, SIGRTMIN);
-                $server->send($fd, "Reset Log\n");
+                $server->send($fd, 'Reset Log' . PHP_EOL);
                 break;
             default:
                 $cmd = explode(" ", trim($cmd));
@@ -235,7 +227,7 @@ class Server {
                         case 'reset' :
                             if (isset($cmd[1])) {
                                 $boole = $this->table->set((string)$cmd[1], ['num' => 0]);
-                                $boole ? $server->send($fd, "reset success\n") : $server->send($fd, "reset fail\n");
+                                $boole ? $server->send($fd, 'reset success' . PHP_EOL) : $server->send($fd, 'reset fail' . PHP_EOL);
                             }
                             break;
                     }
@@ -246,17 +238,17 @@ class Server {
 
     public function log($data = '', $type = 'task') {
         $time = microtime(true);
-        $date = date('Ydm');
+        $date = date('Ymd');
         $sfm = date('Y-m-d H:i:s', (int)$time);
         $file = static::LOG_PATH . $date . "_{$type}.log";
         $text = <<<EOF
 [{$sfm}] {$data} Runtime:{$time}
 EOF;
         if ($type === 'task') {
-            file_put_contents($file, trim($text) . "\n", FILE_APPEND);
+            file_put_contents($file, trim($text) . PHP_EOL, FILE_APPEND);
         } else {
             Swoole\Coroutine::create(function () use ($file, $text) {
-                file_put_contents($file, trim($text) . "\n", FILE_APPEND);
+                file_put_contents($file, trim($text) . PHP_EOL, FILE_APPEND);
             });
         }
     }
